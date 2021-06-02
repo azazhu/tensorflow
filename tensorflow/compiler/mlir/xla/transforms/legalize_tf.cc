@@ -71,6 +71,7 @@ limitations under the License.
 #include "tensorflow/core/util/padding.h"
 #include "tensorflow/core/util/tensor_format.h"
 #include "tensorflow/stream_executor/tpu/c_api_conversions.h"
+#include "tensorflow/compiler/mlir/tensorflow/ir/tf_ops_n_z.h"
 
 namespace mlir {
 namespace mhlo {
@@ -3477,6 +3478,210 @@ class ConvertStridedSliceOp : public OpRewritePattern<TF::StridedSliceOp> {
   }
 };
 
+static SmallVector<Value, 4> getDimSizeValuesFromTensor(
+    PatternRewriter& rewriter, Location loc, Value t, Type index_type) {
+  auto t_ty = t.getType().dyn_cast<RankedTensorType>();
+  assert(t_ty && "invalid use of getShapeFromTensor");
+
+  int64_t t_rank = t_ty.getRank();
+  SmallVector<Value, 4> shape_values;
+  shape_values.reserve(t_rank);
+  for (int64_t i = 0; i < t_rank; ++i) {
+    auto dim_size = t_ty.getDimSize(i);
+    if (dim_size == ShapedType::kDynamicSize) {
+      shape_values.push_back(rewriter.create<IndexCastOp>(
+          loc, rewriter.create<memref::DimOp>(loc, t, i), index_type));
+    } else {
+      shape_values.push_back(rewriter.create<ConstantOp>(
+          loc, rewriter.getIntegerAttr(index_type, dim_size)));
+    }
+  }
+  return shape_values;
+}
+
+static RankedTensorType getDynamicRankedTensorTy(int64_t rank,
+                                                 Type element_type) {
+  SmallVector<int64_t, 4> result_shape(rank, ShapedType::kDynamicSize);
+  RankedTensorType result_type =
+      RankedTensorType::get(result_shape, element_type);
+  return result_type;
+}
+
+class ConvertStridedSliceOpDynamic
+    : public OpRewritePattern<TF::StridedSliceOp> {
+ public:
+  using OpRewritePattern::OpRewritePattern;
+
+  // TODO: negative strides requires mhlo::DReverseOp and are currently
+  // not supported.
+  // Converts StridedSlice op to HLO DSlice op along with DReverse op to handle
+  // negative strides and Reshape op to update the output shape, in case the
+  // begin/end/strides are not constant.
+  //
+  // For example with an op like following,
+  //   tf.StridedSlice(%input, %begin, %end, %strides) {shrink_axis_mask = 1}
+  //     : tensor<AxBxf32> -> tensor<Pxf32>
+  //
+  // Output would be:
+  //   %reversed = "mhlo.DReverse" (%input, %dimensions_mask)
+  //   %sliced = "mhlo.DSlice" (%input, %start, %limit, %strides)
+  //   %output = "mhlo.DReshape" (%sliced, %final_shape)
+  LogicalResult matchAndRewrite(
+      TF::StridedSliceOp op, PatternRewriter& rewriter) const override {
+    Location loc = op.getLoc();
+    Value input = op.input();
+    auto input_ty = input.getType().dyn_cast<RankedTensorType>();
+    // input must be ranked for StridedSliceOp
+    if (!input_ty) return failure();
+
+    auto input_element_ty = input_ty.getElementType();
+
+    // TODO: There's no fundamental reason to require strides() to be
+    // positive constants, just in order to support this we need to support
+    // mhlo::DReverseOp in the subsequent passes, which seems to be rare
+    // anyway.
+    DenseIntElementsAttr sparse_strides_attr;
+    // To be implemented if strides of StridedSlice is not constant
+    if (!matchPattern(op.strides(), m_Constant(&sparse_strides_attr)))
+      return failure();
+
+    SmallVector<int64_t, 4> static_sparse_strides;
+    for (const APInt& stride : sparse_strides_attr) {
+      int64_t stride_value = stride.getSExtValue();
+      // To be implemented if strides of StridedSlice is negative
+      if (stride_value < 0) return failure();
+
+      static_sparse_strides.push_back(stride_value);
+    }
+
+    auto index_ty =
+        op.begin().getType().dyn_cast<RankedTensorType>().getElementType();
+    auto input_shape = getDimSizeValuesFromTensor(rewriter, loc, op.input(), index_ty);
+
+    DenseIntElementsAttr sparse_begin_attr, sparse_end_attr;
+    if (!matchPattern(op.begin(), m_Constant(&sparse_begin_attr)) ||
+        !matchPattern(op.end(), m_Constant(&sparse_end_attr))) {
+      ArrayRef<int64_t> input_shape_arr = input_ty.getShape();
+      int last_dim = std::max(static_cast<int>(input_shape_arr.size()) - 1, 0);
+      // When begin/end values are dynamic, we can only support shrinking a major
+      // axis. For instance, if there are 4 dims, we can support a
+      // shrink_axis_mask of 0001 (1), 0011 (3), 0111 (7), or 1111 (15), but no
+      // other.
+      bool shrink_axis_mask_ok = llvm::isMask_64(op.shrink_axis_mask());
+      if (!shrink_axis_mask_ok)
+        return rewriter.notifyMatchFailure(
+            op,
+            "requires that shrink_axis_mask, if set, refer to a major axis "
+            "dimension (when begin/end values are dynamic)");
+      // When begin/end values are dynamic, the ellipsis mask, if set, must refer
+      // to the last dimension.
+      int ellipsis_mask = op.ellipsis_mask();
+      if (!(ellipsis_mask == 0 || ellipsis_mask == (1 << last_dim)))
+        return rewriter.notifyMatchFailure(
+            op,
+            "requires that ellipsis_mask, if set, refer to the last dimension of "
+            "input (when begin/end values are dynamic)");
+      uint64_t begin_mask = op.begin_mask();
+      if (begin_mask)
+        return rewriter.notifyMatchFailure(
+            op,
+            "requires that begin_mask is either set to 0 or not set when "
+            "begin/end values are dynamic");
+      uint64_t end_mask = op.end_mask();
+      if (end_mask)
+        return rewriter.notifyMatchFailure(
+            op,
+            "requires that end_mask is either set to 0 or not set when begin/end "
+            "values are dynamic");
+      uint64_t new_axis_mask = op.new_axis_mask();
+      if (new_axis_mask)
+        return rewriter.notifyMatchFailure(
+            op,
+            "requires that new_axis_mask is either set to 0 or not set when "
+            "begin/end values are dynamic");
+    }
+
+    SmallVector<Value, 4> begin_indices, end_indices, strides;
+    SmallVector<Value, 4> final_shape = op.GetSlicedBoundRangesDyn(
+        &rewriter, &begin_indices, &end_indices, &strides);
+
+    SmallVector<Value, 4> hlo_begin_indices, hlo_end_indices, hlo_strides,
+        dims_to_reverse;
+    int64_t input_rank = input_ty.getRank();
+    hlo_begin_indices.reserve(input_rank);
+    hlo_end_indices.reserve(input_rank);
+    hlo_strides.reserve(input_rank);
+
+    int64_t indices_elements = begin_indices.size();
+    if (input_rank < indices_elements) return failure();
+
+    // Convert from TensorFlow negative or out of range indices and strides
+    // values to legal HLO Slice attributes.
+
+    Value zero =
+        rewriter.create<ConstantOp>(loc, rewriter.getIntegerAttr(index_ty, 0));
+    for (int i = 0, e = indices_elements; i != e; i++) {
+      Value begin = begin_indices[i];
+      Value end = end_indices[i];
+      Value stride = strides[i];
+
+      // TODO: emit more codes here when stride < 0
+      // Unlike TensorFlow, HLO requires begin and end values to be within
+      // range.
+      // begin = std::max(int64_t(0), begin);
+      // end = std::max(begin, end);
+      // end = std::min(end, input_shape[i]);
+      begin = rewriter.create<mlir::SelectOp>(
+          loc, rewriter.create<CmpIOp>(loc, CmpIPredicate::sge, begin, zero),
+          begin, zero);
+      end = rewriter.create<mlir::SelectOp>(
+          loc, rewriter.create<CmpIOp>(loc, CmpIPredicate::sge, begin, end),
+          begin, end);
+      end = rewriter.create<mlir::SelectOp>(
+          loc,
+          rewriter.create<CmpIOp>(loc, CmpIPredicate::slt, end, input_shape[i]),
+          end, input_shape[i]);
+
+      hlo_begin_indices.push_back(begin);
+      hlo_end_indices.push_back(end);
+      hlo_strides.push_back(stride);
+    }
+
+    // TODO: emit mhlo::DReverseOp here to support negative strides
+    Value hlo_begin_indices_t =
+        rewriter.create<tensor::FromElementsOp>(
+            loc, index_ty,
+            hlo_begin_indices);
+    Value hlo_end_indices_t =
+        rewriter.create<tensor::FromElementsOp>(
+            loc, index_ty,
+            hlo_end_indices);
+    Value hlo_strides_t = rewriter.create<tensor::FromElementsOp>(
+        loc, index_ty, hlo_strides);
+
+    auto slice_result_ty = getDynamicRankedTensorTy(input_rank, input_element_ty);
+    auto sliced = rewriter.create<RealDynamicSliceOp>(loc, slice_result_ty, input,
+                                            hlo_begin_indices_t,
+                                            hlo_end_indices_t, hlo_strides_t);
+
+    // Reshape slice result so that the shape is updated depending on
+    // 'new_axis_mask' or 'shrink_axis_mask' attributes.
+
+    // TODO: Check if final_shape is static when its rank > 0
+    if (final_shape.size() == 0) {
+      rewriter.replaceOpWithNewOp<ReshapeOp>(op, op.getType(), sliced);
+    } else {
+      Value final_shape_t = rewriter.create<tensor::FromElementsOp>(
+          loc, index_ty,
+          final_shape);
+      rewriter.replaceOpWithNewOp<DynamicReshapeOp>(op, op.getType(), sliced,
+                                              final_shape_t);
+    }
+    return success();
+  }
+  
+};
+
 // Converts tf.StridedSliceGrad to HLO reshape, reverse and padding ops.
 //
 // tf.StridedSlice is taking slice of the input tensor. tf.StridedSliceGrad does
@@ -6558,6 +6763,9 @@ LogicalResult legalizeTF(Operation *op, bool allow_partial_conversion,
   target.addLegalDialect<tensor::TensorDialect>();
   target.addLegalDialect<shape::ShapeDialect>();
   target.addLegalOp<CallOp>();
+  //TODO: replace by tensor::DimOp if it implemented. 
+  //See: https://llvm.discourse.group/t/rfc-split-the-memref-dialect-from-std/2667/6
+  target.addLegalOp<memref::DimOp>();
 
   if (!allow_partial_conversion) {
     // Fully qualify ReturnOp here as mhlo dialect also defines a ReturnOp.
@@ -6657,6 +6865,7 @@ void PopulateLegalizeTfPatterns(MLIRContext *context,
     ConvertXlaAllReduceOp,
     ConvertRollOp,
     ConvertLeakyReluOp,
+    ConvertStridedSliceOpDynamic,
     ConvertLeakyReluGradOp>(context);
   // clang-format on
 }

@@ -16535,6 +16535,12 @@ clamped to `[0,dim[i]) if slice[i]>0` or `[-1,dim[i]-1] if slice[i] < 0`}]>:$str
       ::llvm::SmallVectorImpl<int64_t> *slice_begin,
       ::llvm::SmallVectorImpl<int64_t> *slice_end,
       ::llvm::SmallVectorImpl<int64_t> *slice_stride);
+    
+    ::llvm::SmallVector<Value, 4> GetSlicedBoundRangesDyn(
+      ::mlir::PatternRewriter* rewriter,
+      ::llvm::SmallVectorImpl<Value>* slice_begin,
+      ::llvm::SmallVectorImpl<Value>* slice_end,
+      ::llvm::SmallVectorImpl<Value>* slice_stride);
   }];
 }
 
