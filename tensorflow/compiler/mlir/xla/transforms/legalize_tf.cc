@@ -3531,8 +3531,16 @@ class ConvertStridedSliceOpDynamic
     Location loc = op.getLoc();
     Value input = op.input();
     auto input_ty = input.getType().dyn_cast<RankedTensorType>();
+    auto begin_ty = op.begin().getType().dyn_cast<RankedTensorType>();
+    auto end_ty = op.end().getType().dyn_cast<RankedTensorType>();
+    auto strides_ty = op.strides().getType().dyn_cast<RankedTensorType>();
     // input must be ranked for StridedSliceOp
-    if (!input_ty) return failure();
+    if (!input_ty || !begin_ty || !end_ty || !strides_ty) 
+      return failure();
+    // TODO: Remove this constraint once fold and canonicalization implemented.
+    if (input_ty.hasStaticShape() && begin_ty.hasStaticShape() 
+        && end_ty.hasStaticShape() && strides_ty.hasStaticShape()) 
+      return failure();
 
     auto input_element_ty = input_ty.getElementType();
 
