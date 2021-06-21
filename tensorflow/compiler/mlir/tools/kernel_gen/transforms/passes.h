@@ -50,6 +50,9 @@ std::unique_ptr<FunctionPass> CreateBufferReusePass();
 std::unique_ptr<OperationPass<ModuleOp>> CreateTFKernelToLLVMPass(
     mlir::StringRef blob_annotation = {});
 
+// Pass for convert memref.alloc to ral_disc.dispatch
+std::unique_ptr<OperationPass<ModuleOp>> CreateConvertAddressSpacePass();
+
 // Pass to tranform shape computations in shape dialect to standard and scf
 // using memref descriptors.
 std::unique_ptr<OperationPass<ModuleOp>> CreateShapeToDescriptorsPass();
