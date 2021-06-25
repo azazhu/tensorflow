@@ -32,16 +32,15 @@ def ConvertAddressSpacePass : Pass<"convert-address-space", "ModuleOp"> {
   let constructor = "transforms::CreateConvertAddressSpacePass()";
 }
 
-def EmbedTFFrameworkFunctionAndAllocPass
-    : Pass<"embed-tf-framework-func-and-alloc", "ModuleOp"> {
-  let summary = "Pass to embed TF Framework for allocation and context";
-  let constructor = "tf_framework::CreateEmbedTFFrameworkFunctionAndAllocPass()";
+def EmbedTFFrameworkPass
+    : Pass<"embed-tf-framework", "ModuleOp"> {
+  let summary = "Pass to embed TF Framework for allocation and assertions,";
+  let constructor = "tf_framework::CreateEmbedTFFrameworkPass()";
 }
 
-def EmbedTFFrameworkAssertPass
-    : Pass<"embed-tf-framework-assert", "ModuleOp"> {
-  let summary = "Pass to rewrite assertions to TF framework calls";
-  let constructor = "tf_framework::CreateEmbedTFFrameworkAssertPass()";
+def RewriteTFFrameworkAssert : Pass<"rewrite-tf-framework-assert", "ModuleOp"> {
+  let summary = "Pass to rewrite TFAssertOps to CondBranchOp";
+  let constructor = "tf_framework::CreateRewriteTFFrameworkAssert()";
 }
 
 def BufferReusePass : FunctionPass<"buffer-reuse"> {
