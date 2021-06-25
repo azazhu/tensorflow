@@ -123,6 +123,10 @@ std::unique_ptr<OperationPass<FuncOp>> createLhloFusionPass(
 
 namespace disc_ral {
 
+
+// Pass for convert memref.alloc to ral_disc.dispatch
+std::unique_ptr<OperationPass<ModuleOp>> createConvertAddressSpacePass();
+
 std::unique_ptr<OperationPass<ModuleOp>> createRalInjectExecutionContextPass(
     const std::string& entry_func_name = "main");
 

@@ -10,7 +10,7 @@ module  {
     return
   }
 
-func @non_fusion_elemwise_cpu(%arg0: memref<2x3x4xf32, "device_type_3df32">, %arg1: memref<2x3x4xf32, "device_type_3df32">, %arg2: memref<2x3x4xf32, "device_type_3df32">) -> memref<2x3x4xf32, "device_type_3df32"> {
+  func @non_fusion_elemwise_cpu(%arg0: memref<2x3x4xf32, "device_type_3df32">, %arg1: memref<2x3x4xf32, "device_type_3df32">, %arg2: memref<2x3x4xf32, "device_type_3df32">) -> memref<2x3x4xf32, "device_type_3df32"> {
     %c0 = constant 0 : index
     %c1 = constant 1 : index
     %c2 = constant 2 : index

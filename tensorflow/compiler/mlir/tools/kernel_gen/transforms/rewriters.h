@@ -47,9 +47,6 @@ namespace transforms {
 void populateExtraStdBufferizePattern(MLIRContext *context,
                                       BufferizeTypeConverter *converter,
                                       RewritePatternSet *patterns);
-
-void PopulateMemRefDeviceAllocToLLVMConversionPatterns(
-    LLVMTypeConverter *converter, RewritePatternSet *patterns);
     
 }  // namespace transforms
 }  // namespace kernel_gen

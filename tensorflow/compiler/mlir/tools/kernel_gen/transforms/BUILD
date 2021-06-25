@@ -32,24 +32,6 @@ cc_library(
 )
 
 cc_library(
-    name = "convert_address_space",
-    srcs = ["convert_address_space.cc"],
-    hdrs = ["rewriters.h"],
-    compatible_with = get_compatible_with_cloud(),
-    deps = [
-        "//tensorflow/compiler/mlir/hlo:disc_ral",
-        "@llvm-project//llvm:Support",
-        "@llvm-project//mlir:MemRefDialect",
-        "@llvm-project//mlir:IR",
-        "@llvm-project//mlir:LLVMDialect",
-        "@llvm-project//mlir:LLVMTransforms",
-        "@llvm-project//mlir:StandardOps",
-        "@llvm-project//mlir:Support",
-        "@llvm-project//mlir:Transforms",
-    ],
-)
-
-cc_library(
     name = "bufferize",
     srcs = ["bufferize.cc"],
     hdrs = ["rewriters.h"],
@@ -115,7 +97,6 @@ cc_library(
         "shape_to_descriptors_pass.cc",
         "tensorflow_abi_knowledge_propagation.cc",
         "tf_kernel_to_llvm_pass.cc",
-        "convert_address_space_pass.cc",
         "vectorization_pass.cc",
     ],
     hdrs = ["passes.h"],
@@ -126,7 +107,6 @@ cc_library(
         ":embed_tf_framework",
         ":kernel_gen_passes_inc_gen",
         ":tf_framework_legalize_to_llvm",
-        ":convert_address_space",
         "@llvm-project//llvm:Support",
         "@llvm-project//llvm:TransformUtils",
         "@llvm-project//mlir:MathToLibm",

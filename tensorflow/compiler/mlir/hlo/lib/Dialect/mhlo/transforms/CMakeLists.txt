@@ -160,7 +160,8 @@ add_mlir_library(LmhloPasses
 add_mlir_library(DiscRalPasses
   ral_inject_execution_context.cc
   ral_lower_to_library_call.cc
-
+  convert_address_space_pass.cc
+  
   DEPENDS
   MLIRdisc_ral_opsIncGen
   MLIRDiscRalPassIncGen

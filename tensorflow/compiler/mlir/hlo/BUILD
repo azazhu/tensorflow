@@ -694,6 +694,38 @@ cc_library(
 )
 
 cc_library(
+    name = "convert_address_space_pass",
+    srcs = ["lib/Dialect/mhlo/transforms/convert_address_space_pass.cc"],
+    hdrs = [
+        "include/mlir-hlo/Dialect/mhlo/transforms/passes.h",
+        "include/mlir-hlo/Dialect/mhlo/transforms/rewriters.h",
+    ],
+    deps = [
+        ":disc_ral",
+        ":pass_details",
+        "@llvm-project//llvm:Support",
+        "@llvm-project//llvm:TransformUtils",
+        "@llvm-project//mlir:Affine",
+        "@llvm-project//mlir:AllPassesAndDialects",
+        "@llvm-project//mlir:Analysis",
+        "@llvm-project//mlir:GPUDialect",
+        "@llvm-project//mlir:IR",
+        "@llvm-project//mlir:LLVMDialect",
+        "@llvm-project//mlir:LLVMTransforms",
+        "@llvm-project//mlir:MathDialect",
+        "@llvm-project//mlir:MemRefDialect",
+        "@llvm-project//mlir:Pass",
+        "@llvm-project//mlir:StandardOps",
+        "@llvm-project//mlir:StandardOpsTransforms",
+        "@llvm-project//mlir:Support",
+        "@llvm-project//mlir:ToLLVMIRTranslation",
+        "@llvm-project//mlir:Transforms",
+    ],
+    alwayslink = 1,
+)
+
+
+cc_library(
     name = "ral_lower_to_library_call",
     srcs = ["lib/Dialect/mhlo/transforms/ral_lower_to_library_call.cc"],
     hdrs = [
@@ -1387,6 +1419,7 @@ cc_library(
         ":mhlo_fusion",
         ":mhlo_to_mhlo_lowering_patterns",
         ":ral_inject_execution_context",
+        ":convert_address_space_pass",
         ":ral_lower_to_library_call",
         ":rank_specialization",
         ":sink_constants_to_control_flow",

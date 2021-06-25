@@ -28,3 +28,8 @@ def RalLowerToLibraryCallPass : FunctionPass<"disc-ral-lower-to-library-call"> {
   let summary = "Lower some specific ops to library calls (modeled by `disc_ral.launch` op).";
   let constructor = "createRalLowerToLibraryCallPass()";
 }
+
+def ConvertAddressSpacePass : Pass<"convert-address-space", "ModuleOp"> {
+  let summary = "Pass for convert memref.alloc to ral_disc.dispatch";
+  let constructor = "createConvertAddressSpacePass()";
+}

@@ -27,11 +27,6 @@ def TFKernelToLLVMPass : Pass<"tf-kernel-to-llvm", "ModuleOp"> {
   ];
 }
 
-def ConvertAddressSpacePass : Pass<"convert-address-space", "ModuleOp"> {
-  let summary = "Pass for convert memref.alloc to ral_disc.dispatch";
-  let constructor = "transforms::CreateConvertAddressSpacePass()";
-}
-
 def EmbedTFFrameworkPass
     : Pass<"embed-tf-framework", "ModuleOp"> {
   let summary = "Pass to embed TF Framework for allocation and assertions,";
